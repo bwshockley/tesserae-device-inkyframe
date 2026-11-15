@@ -102,13 +102,19 @@ tess_kind_probe_t tess_probe_kind(const char *base, const tess_identity_t *id)
     return res;
 }
 
-void tess_discover(const char *base, const tess_identity_t *id, tess_pair_t *out)
+void tess_discover(const char *base, const tess_identity_t *id, const char *token, tess_pair_t *out)
 {
-    char url[256];
+    char url[256], auth[300];
     snprintf(url, sizeof url, "%s/api/v1/device/discover", base);
+    // A server that has seen this frame use its token answers a MAC match
+    // only to a request that carries the token; without it the frame is
+    // told to wait for the owner to allow a re-pair. First pairing has no
+    // token and sends none.
+    const char *hdrs[1]; int n = 0;
+    if (token && token[0]) { bearer(auth, sizeof auth, token); hdrs[n++] = auth; }
     char *body = identity_json(id);
     http_resp_t r;
-    http_request("POST", url, NULL, 0, body, &r, NULL, NULL, NULL, HTTP_TIMEOUT_DISCOVER_MS, 0);
+    http_request("POST", url, n ? hdrs : NULL, n, body, &r, NULL, NULL, NULL, HTTP_TIMEOUT_DISCOVER_MS, 0);
     free(body);
     parse_pair(&r, out);
     http_resp_free(&r);
