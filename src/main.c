@@ -190,7 +190,7 @@ static int32_t pair(const char *base)
     while (true) {
         tess_pair_t r;
         if (use_code) tess_register(base, &id, code, &r);
-        else tess_discover(base, &id, &r);
+        else tess_discover(base, &id, NULL, &r);
 
         if (r.registered) {
             apply_pairing(&r);
@@ -608,7 +608,7 @@ static int32_t cycle(int wake_button)
         choose_kind(base);
         if (!storage_fallback_kind()) {
             tess_pair_t r; tess_identity_t id = identity();
-            tess_discover(base, &id, &r);
+            tess_discover(base, &id, storage_token(), &r);
             if (r.registered) apply_pairing(&r);
             else storage_set_fallback_kind(true);
         }

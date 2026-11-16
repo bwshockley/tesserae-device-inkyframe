@@ -69,7 +69,8 @@ typedef struct {
 // Register with a dummy pairing code: a 400 "unknown device kind" means the
 // kind is not installed; a 403 means it exists.
 tess_kind_probe_t tess_probe_kind(const char *base, const tess_identity_t *id);
-void tess_discover(const char *base, const tess_identity_t *id, tess_pair_t *out);
+// ``token`` is the stored device token, or NULL/"" when the frame has none yet.
+void tess_discover(const char *base, const tess_identity_t *id, const char *token, tess_pair_t *out);
 void tess_register(const char *base, const tess_identity_t *id, const char *code, tess_pair_t *out);
 void tess_get_frame(const char *base, const char *device_id, const char *token, const char *etag,
                     const char *button, const char *button_key, uint32_t event_id, tess_frame_t *out);
