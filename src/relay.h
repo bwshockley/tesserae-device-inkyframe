@@ -27,7 +27,7 @@ typedef enum {
 relay_pair_result_t relay_pair(uint32_t budget_ms);
 
 // GET the frame mailbox with If-None-Match. On 200 the sealed frame is
-// downloaded, authenticated and opened into the PSRAM frame store
+// downloaded, authenticated and opened into the frame store
 // (`*opened`), with its ETag in etag_out. Returns the HTTP status; 401 means
 // the pairing was revoked.
 int relay_fetch_frame(const char *etag, bool *opened, char *etag_out, size_t etag_cap);

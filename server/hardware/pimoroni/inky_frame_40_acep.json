@@ -18,5 +18,5 @@
   },
   "refresh_floor_s": 30,
   "image_format": "bin",
-  "notes_md": "Full refresh takes about 30 s. The firmware announces this kind on `/discover`; if the entry is missing it falls back to the stock `pico_bin_client` kind, whose 1600x1200 default panel produces frames the firmware refuses, so install this file before clicking Register."
+  "notes_md": "Full refresh takes about 30 s. **Needs a microSD card** (FAT32 or exFAT): this size has no PSRAM, so the firmware keeps its frame store on the card. The firmware announces this kind on `/discover`; if the entry is missing it falls back to the stock `pico_bin_client` kind, whose 1600x1200 default panel produces frames the firmware refuses, so install this file before clicking Register."
 }

@@ -5,7 +5,7 @@
   "vendor": "Pimoroni",
   "url": "https://shop.pimoroni.com/products/inky-frame-7-3",
   "icon": "monitor",
-  "description": "7.3 inch 800x480 Inky Frame (Pico 2 W aboard) with the Spectra 6 E673 panel shipped from September 2025. Driven by the tesserae-inkyframe Pico SDK firmware (built with PANEL_VARIANT=PANEL_SPECTRA) over the REST device API. Owners of the earlier 7-colour ACeP revision should use pimoroni_inky_frame_73_acep.",
+  "description": "7.3 inch 800x480 Inky Frame (Pico 2 W aboard) with the Spectra 6 E673 panel shipped from September 2025. Driven by the tesserae-inkyframe Pico SDK firmware (built with PANEL_VARIANT=PANEL_73_SPECTRA) over the REST device API. Owners of the earlier 7-colour ACeP revision should use pimoroni_inky_frame_73_acep.",
   "protocol": "pico_bin_client",
   "panel": {
     "w": 800,

@@ -43,3 +43,8 @@ cc -std=gnu11 -O1 -Wall -Wextra -I"$SRC" -I"$SRC/vendor" test_frame_collection.c
 # The log ring the log uploads and OTA logs copy from (Pico SDK stubbed).
 cc -std=gnu11 -O1 -Wall -Wextra -Istubs -I"$SRC" test_log.c "$SRC/log.c" -o .deps/test_log
 .deps/test_log > /dev/null   # stdout is the logged lines; results are on stderr
+
+# The card-backed frame store of the 4.0" and 5.7" (FatFs and the card stubbed).
+cc -std=gnu11 -O1 -Wall -Wextra -DBOARD_HAS_PSRAM=0 -DPANEL_VARIANT=PANEL_57 -DPICO_FLASH_SIZE_BYTES=2097152 \
+   -Istubs -I../../include -I"$SRC" test_store.c "$SRC/store.c" -o .deps/test_store
+.deps/test_store

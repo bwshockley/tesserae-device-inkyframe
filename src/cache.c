@@ -12,9 +12,9 @@
 #include "http.h"
 #include "json_num.h"
 #include "log.h"
-#include "psram.h"
 #include "sdcard.h"
 #include "sha256.h"
+#include "store.h"
 #include "vendor/fatfs/ff.h"
 
 #define DIR_ROOT   "/tesserae"
@@ -94,7 +94,7 @@ static void frame_path(char *out, size_t cap, const char *dir, const char *diges
 
 // ---- a cached frame onto the glass ----
 
-// Load <dir>/<digest>.bin into the PSRAM frame store, checking its length and
+// Load <dir>/<digest>.bin into the frame store, checking its length and
 // digest on the way, and paint it.
 static bool paint_cached(const char *dir, const char *digest, uint32_t bytes)
 {
@@ -113,7 +113,7 @@ static bool paint_cached(const char *dir, const char *digest, uint32_t bytes)
         UINT got = 0;
         ok = f_read(&f, buf, sizeof buf, &got) == FR_OK && got > 0;
         if (!ok) break;
-        psram_write(off, buf, got);
+        store_write(off, buf, got);
         sha256_update(&sha, buf, got);
         off += got;
     }
@@ -126,6 +126,7 @@ static bool paint_cached(const char *dir, const char *digest, uint32_t bytes)
         f_unlink(path);
         return false;
     }
+    if (!store_sync()) return false;   // the store, not the file, is at fault
     frame_set_complete(true);
     return frame_paint();
 }
@@ -140,7 +141,7 @@ static void dl_sink(const uint8_t *data, size_t len, void *arg)
 {
     dl_t *d = arg;
     if (d->got + len > d->want) len = d->want - d->got;
-    psram_write(CACHE_PSRAM_OFFSET + d->got, data, len);
+    store_write(CACHE_PSRAM_OFFSET + d->got, data, len);
     sha256_update(&d->sha, data, len);
     d->got += (uint32_t)len;
 }
@@ -165,6 +166,7 @@ static bool fetch_to_card(const char *url, const char *token, const char *dir, c
         LOGW("cache: fetch of %s failed (http %d, %lu bytes, digest %s)", digest, code, (unsigned long)d.got, hex);
         return false;
     }
+    if (!store_sync()) return false;   // the digest covered the stream, not what the store kept
     char path[96], tmp[100];
     frame_path(path, sizeof path, dir, digest);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
@@ -174,7 +176,7 @@ static bool fetch_to_card(const char *url, const char *token, const char *dir, c
     bool ok = true;
     for (uint32_t off = 0; ok && off < bytes; off += sizeof buf) {
         UINT n = bytes - off < sizeof buf ? bytes - off : sizeof buf, put = 0;
-        psram_read(CACHE_PSRAM_OFFSET + off, buf, n);
+        store_read(CACHE_PSRAM_OFFSET + off, buf, n);
         ok = f_write(&f, buf, n, &put) == FR_OK && put == n;
     }
     ok = f_close(&f) == FR_OK && ok;

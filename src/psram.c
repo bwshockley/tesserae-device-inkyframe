@@ -1,11 +1,14 @@
 #include "psram.h"
 
+#include "config.h"
+
+#if BOARD_HAS_PSRAM   // the 4.0" and 5.7" have no PSRAM; store.c uses the card
+
 #include <string.h>
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
 #include "hardware/gpio.h"
 
-#include "config.h"
 #include "log.h"
 
 #define PSRAM_SPI      spi0
@@ -156,3 +159,5 @@ bool psram_test(void)
     psram_read(0x40000 + 10, back, sizeof back);
     return memcmp(pat, back, sizeof pat) == 0;
 }
+
+#endif   // BOARD_HAS_PSRAM

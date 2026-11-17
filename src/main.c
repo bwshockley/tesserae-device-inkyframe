@@ -1,8 +1,8 @@
-// Tesserae client for the Pimoroni Inky Frame 7.3".
+// Tesserae client for the Pimoroni Inky Frame (4.0", 5.7", 7.3").
 //
 // One wake cycle:
 //   wake reason -> Wi-Fi -> (pair if no token) -> GET /frame (ETag) ->
-//   download into PSRAM -> POST /status -> radio off -> paint -> persist ->
+//   download into the frame store -> POST /status -> radio off -> paint -> persist ->
 //   sleep for next_poll_s (RTC alarm + power off on battery; resident on USB).
 //
 // Setup: a frame with no Wi-Fi or server opens the setup portal (portal.c).
@@ -29,12 +29,12 @@
 #include "ota.h"
 #include "portal.h"
 #include "power.h"
-#include "psram.h"
 #include "relay.h"
 #include "rtc.h"
 #include "screen.h"
 #include "settings.h"
 #include "storage.h"
+#include "store.h"
 #include "tesserae.h"
 #include "wifi.h"
 
@@ -235,7 +235,7 @@ static int32_t pair(const char *base)
 }
 
 // GET /frame and download. Returns the HTTP status; `*downloaded` is set when
-// a complete frame is in PSRAM (painted later, with the radio down). `*button`
+// a complete frame is in the store (painted later, with the radio down). `*button`
 // (a button index, -1 for none) is cleared once the server has acknowledged it.
 static int fetch_frame(const char *base, int *button, uint32_t event_id, bool *downloaded, char *etag_out, size_t etag_cap)
 {
@@ -757,11 +757,22 @@ int main(void)
     s_screen = pcf_ram_get() & 0x0F;
     if (s_screen > SCREEN_CONNECTED) s_screen = SCREEN_UNKNOWN;
     epd_init();
-    if (!psram_init() || !psram_test()) LOGE("psram: FAILED; frames cannot be stored");
+    if (!store_init() || !store_test()) LOGE("store: FAILED; frames cannot be stored");
     else diag_carry_begin();
     cache_begin();
     LOGI("device id '%s', kind '%s', screen state %u, rtc %s (%lu)", storage_device_id(), current_kind(), s_screen,
          pcf_time_valid() ? "valid" : "unset", (unsigned long)pcf_get_epoch());
+#if !BOARD_HAS_PSRAM
+    // This frame keeps its frames on the card: without one, say so (the
+    // status pages need no store) rather than check in and paint nothing.
+    // A frame still to be set up shows the setup page first; this follows
+    // the reboot that saving it causes.
+    if (!store_ready() && settings_configured() && s_screen != SCREEN_ERROR) {
+        screen_message("No microSD card", "This Inky Frame keeps its frames on a microSD card.",
+                       "Insert a FAT32 or exFAT card, then press any button.", "");
+        set_screen(SCREEN_ERROR);
+    }
+#endif
 
     int wake_button = -1;
     if (wake >= WAKE_BUTTON_A && wake <= WAKE_BUTTON_E) {
@@ -783,6 +794,8 @@ int main(void)
 
     while (true) {
         s_boot_count++;
+        // USB-resident: a card put in after boot is picked up on the next cycle.
+        if (s_boot_count > 1 && !store_ready() && store_init() && !store_test()) LOGE("store: FAILED; frames cannot be stored");
         int32_t sleep_s = cycle(wake_button);
         if (keep_wake_log && !s_on_usb) diag_save_failed_wake();
         keep_wake_log = false;

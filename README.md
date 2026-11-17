@@ -1,9 +1,10 @@
-# Tesserae client for the Pimoroni Inky Frame 7.3"
+# Tesserae client for the Pimoroni Inky Frame
 
-Firmware that turns a **Pimoroni Inky Frame 7.3"** (800 × 480, 7-colour or
-Spectra 6, Raspberry Pi Pico W / Pico 2 W aboard) into a battery-powered
-[Tesserae](https://docs.tesserae.ink/) dashboard panel over the v1 REST device
-API. Written in C against the Raspberry Pi Pico SDK.
+Firmware that turns a **Pimoroni Inky Frame** — the 7.3" (800 × 480, 7-colour
+or Spectra 6, Pico W / Pico 2 W aboard), the 5.7" (600 × 448) or the 4.0"
+(640 × 400) — into a battery-powered [Tesserae](https://docs.tesserae.ink/)
+dashboard panel over the v1 REST device API. Written in C against the
+Raspberry Pi Pico SDK.
 
 This is the Tesserae-maintained fork of
 [partridgeworks/tesserae.inkyframe](https://github.com/partridgeworks/tesserae.inkyframe)
@@ -32,19 +33,28 @@ no rotation on device.
 
 Design notes and the bring-up story: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
-## Which panel do you have?
+## Which frame do you have?
 
-The 7.3" Inky Frame shipped with two different panels on identical pins:
+Every Inky Frame shares the same pins; the build picks the panel:
 
-| Revision | Colours | Build environment | Tesserae kind |
+| Frame | Colours | Build environment | Tesserae kind |
 |---|---|---|---|
-| Original **7-colour ACeP** (AC073TC1A), sold before September 2025 | black, white, green, blue, red, yellow, orange | `inkyframe` (default) | `pimoroni_inky_frame_73_acep` |
-| **Spectra 6** (E673) with a **Pico 2 W**, shipped from September 2025 | black, white, yellow, red, blue, green | `inkyframe2_spectra` | `pimoroni_inky_frame_73` |
-| Spectra 6 with an original Pico W | black, white, yellow, red, blue, green | `inkyframe_spectra` | `pimoroni_inky_frame_73` |
+| **7.3"**, original **7-colour ACeP** (AC073TC1A), sold before September 2025 | black, white, green, blue, red, yellow, orange | `inkyframe` (default) | `pimoroni_inky_frame_73_acep` |
+| **7.3"**, **Spectra 6** (E673) with a **Pico 2 W**, shipped from September 2025 | black, white, yellow, red, blue, green | `inkyframe2_spectra` | `pimoroni_inky_frame_73` |
+| **7.3"**, Spectra 6 with an original Pico W | black, white, yellow, red, blue, green | `inkyframe_spectra` | `pimoroni_inky_frame_73` |
+| **5.7"** (600 × 448, UC8159, Pico W) | black, white, green, blue, red, yellow, orange | `inkyframe57` | `pimoroni_inky_frame_57_acep` |
+| **4.0"** (640 × 400, UC8159, Pico W) | black, white, green, blue, red, yellow, orange | `inkyframe40` | `pimoroni_inky_frame_40_acep` |
 
-The Pico on the back says which: a Pico 2 W (RP2350) needs the
+The Pico on the back says which 7.3" you have: a Pico 2 W (RP2350) needs the
 `inkyframe2_spectra` build, as an RP2040 image does not run on it. The
 `inkyframe2_spectra` build is confirmed on hardware.
+
+The 4.0" and 5.7" **need a microSD card** fitted (see below) and their builds
+are **not yet verified on hardware**: the panel sequences follow Pimoroni's
+own UC8159 driver, but the first thing to check on a real frame is that the
+test pattern's bars run left to right along the top and nothing is upside
+down (if it is, the fix is the scan-direction bits in `PSR`, noted in
+`src/epd.c`, not a software turn).
 
 A Spectra 6 panel has a black border along the top edge where the ribbon cable
 attaches. If you are unsure, flash the default build: the palette test pattern
@@ -146,6 +156,19 @@ or unreadable, the frame simply works from the network. The deck and album
 logic (`deck.c`, `frame_collection.c`) is ported unchanged from the ESP32
 firmware, with its tests (`tests/host`).
 
+### The 4.0" and 5.7" need the card
+
+A frame (128,000 bytes on the 4.0", 134,400 on the 5.7") does not fit in the
+Pico W's SRAM beside the Wi-Fi and TLS stacks, and unlike the 7.3" those
+boards carry no PSRAM. The firmware therefore keeps its **frame store** in
+`/tesserae/store.bin` on the card (`store.c`): the frame being downloaded, a
+sealed relay frame, a frame being cached, and (on a Pico 2 W) an OTA image are
+all staged there, with downloads combined into 4 KB card writes. Without a
+card a 4.0" or 5.7" paints a page saying so, keeps checking in, and picks the
+card up on its next wake. The status pages themselves need no store, on any
+size. A 7.3" build with `-DBOARD_HAS_PSRAM=0` uses the card store too, for
+testing it at the bench.
+
 ## Logs and failure reports
 
 The frame keeps its recent log in a 24 KB RAM ring. Collect logs from the
@@ -163,9 +186,10 @@ One goes out when an attempt ends in the same wake (refused by the battery
 gate, or failed), just before the reboot into a new image (the download and its
 checks), and on the boot that settles it (`confirmed`, or `rolled_back` back on
 the old image). The log of the slot write, and of a trial boot that gives up,
-is kept in PSRAM over the reboot and sent at the head of the next OTA log;
+is kept in the frame store over the reboot and sent at the head of the next OTA log;
 PSRAM keeps it only while the frame stays powered, so a trial that hangs until
-the watchdog fires sends what came before the reboot, not the hang itself. A
+the watchdog fires sends what came before the reboot, not the hang itself (the
+card store of a 4.0" or 5.7" keeps it through a power-off as well). A
 frame sends at most one OTA log per change of attempt, phase and reason (kept
 in flash, so a frame on a low battery does not upload one every wake), retries
 a failed upload on a later wake, and never lets one hold up the install.
@@ -183,10 +207,13 @@ server on the LAN is plain HTTP as before.
 ## Install the device kind on the server
 
 Tesserae picks the renderer from the device *kind*, and the kind carries the
-panel size. Current Tesserae servers ship both Inky Frame entries, so there is
-nothing to install. An older server needs the catalog entry for your revision
-before the device registers, otherwise the stock `pico_bin_client` kind's
-1600 × 1200 default produces frames the firmware refuses.
+panel size. Current Tesserae servers ship both 7.3" Inky Frame entries, so
+there is nothing to install for those. The 4.0" and 5.7" kinds
+(`pimoroni_inky_frame_40_acep`, `pimoroni_inky_frame_57_acep`) are new: until
+a server ships them, install the catalog entry before the device registers,
+as an older server needs for any revision, otherwise the stock
+`pico_bin_client` kind's 1600 × 1200 default produces frames the firmware
+refuses.
 
 On such a server, copy the matching file from [server/hardware/pimoroni/](server/hardware/pimoroni/)
 into the Tesserae install as `hardware/pimoroni/<name>.json`:
@@ -196,6 +223,7 @@ into the Tesserae install as `hardware/pimoroni/<name>.json`:
 
 ```yaml
       - ./hardware/pimoroni/inky_frame_73_acep.json:/app/hardware/pimoroni/inky_frame_73_acep.json:ro
+      - ./hardware/pimoroni/inky_frame_57_acep.json:/app/hardware/pimoroni/inky_frame_57_acep.json:ro
 ```
 
 then `docker compose up -d`. Confirm with
@@ -249,9 +277,10 @@ Build-time settings live in [include/config.h](include/config.h):
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `DEVICE_ID` / `DEVICE_NAME` | `inky_frame_73` / Inky Frame 7.3 | announced identity |
-| `PANEL_VARIANT` | `PANEL_ACEP` | selects the panel sequence, kind and gamut |
-| `PANEL_ROTATION` | 0 | the turn from the 800 × 480 buffer to the dashboard |
+| `DEVICE_ID` / `DEVICE_NAME` | per `PANEL_VARIANT` (`inky_frame_73` / Inky Frame 7.3 by default) | announced identity |
+| `PANEL_VARIANT` | `PANEL_73_ACEP` | one of `PANEL_4`, `PANEL_57`, `PANEL_73_ACEP`, `PANEL_73_SPECTRA`: selects the geometry, panel sequence, kind and gamut |
+| `BOARD_HAS_PSRAM` | 1 on the 7.3", 0 on the 4.0" / 5.7" | where the frame store lives: the SPI PSRAM, or `/tesserae/store.bin` on the microSD card |
+| `PANEL_ROTATION` | 0 | the turn from the landscape-native buffer (800 × 480 on the 7.3") to the dashboard |
 | `BUTTON_A_NAME` … `BUTTON_E_NAME` | left, –, refresh, –, right | Tesserae button actions; a button with `""` is sent by its letter only. Every press also carries its letter as `button_key`, which the server's button map checks first (Tesserae 0.505+): `{"a": "page:Calendar", "d": "page:Weather"}` |
 | `SLEEP_MIN_S` / `SLEEP_MAX_S` / `SLEEP_DEFAULT_S` | 30 / 27 days / 900 | bounds applied to server sleep values |
 | `BACKOFF_STEPS_S` | 60, 120, 300, 900 | retry ladder when Wi-Fi or the server is down |
@@ -279,7 +308,8 @@ Full diagnosis, evidence and the upstream fix:
 [docs/palette-order-bug.md](docs/palette-order-bug.md).
 
 Push [tools/palette_test.png](tools/palette_test.png) (generate it with
-`python3 tools/make_palette_png.py tools/`) as a dashboard to check: every bar
+`python3 tools/make_palette_png.py tools/`; add `--size 640x400` or
+`--size 600x448` for the smaller frames) as a dashboard to check: every bar
 should show the colour its label names.
 
 ## Self-test build
@@ -287,7 +317,9 @@ should show the colour its label names.
 `pio run -e inkyframe_selftest -t upload` builds a variant that skips Tesserae
 entirely and paints a synthetic frame from `SELFTEST_BASE_URL` (set it in
 [platformio.ini](platformio.ini)). Generate the frame with
-`python3 tools/make_test_frames.py tools/` and serve it with
+`python3 tools/make_test_frames.py tools/` (`--size 640x400` / `600x448` for
+the 4.0" / 5.7"; the self-test env itself is set to a 7.3" by its
+`PANEL_VARIANT`) and serve it with
 `python3 -m http.server 8000` from `tools/`. It is the quickest way to check the
 download and paint path, and to confirm which way up the panel is mounted.
 
@@ -299,7 +331,7 @@ wake (RTC alarm / button A-E / external trigger / USB / reset)
   -> Wi-Fi -> resolve the server (mDNS or the fallback IP)
   -> no token?  POST /discover until Register is clicked
   -> GET /frame (If-None-Match: <etag>, ?button=... on a press)
-       200: stream 192,000 bytes into PSRAM
+       200: stream the frame (192,000 bytes on the 7.3") into the frame store
        304: nothing to paint       204: "Waiting for a dashboard" page, once
        401/403: forget the token and re-pair on the next wake
   -> POST /status (battery, RSSI, IP, pending button) -> next_poll_s, config
@@ -312,29 +344,30 @@ Serial output at 115200 baud shows every step with timings.
 ## Repository layout
 
 ```
-platformio.ini            envs: inkyframe (ACeP), inkyframe_spectra, inkyframe2_spectra (Pico 2 W), inkyframe_selftest
+platformio.ini            envs: inkyframe (7.3" ACeP), inkyframe_spectra, inkyframe2_spectra (Pico 2 W), inkyframe40, inkyframe57, inkyframe_selftest
 include/config.h          identity, kind/gamut, pins, button map, setup portal, flash layout
 include/secrets.example.h optional development defaults, as include/secrets.h (git-ignored)
 include/lwipopts.h        lwIP configuration for the CYW43 stack
 src/board.c               VSYS hold, wake-reason shift register, buttons, LEDs
-src/epd.c                 panel driver (AC073TC1A / E673) and the test pattern
-src/psram.c               8 MB SPI PSRAM, the frame store
+src/epd.c                 panel driver (UC8159 / AC073TC1A / E673) and the test pattern
+src/store.c               the frame store: PSRAM on the 7.3", a file on the card on the 4.0" / 5.7"
+src/psram.c               8 MB SPI PSRAM (7.3")
 src/rtc.c                 PCF85063A clock, alarm and countdown timer
 src/power.c               VSYS sense and the two sleep regimes
 src/wifi.c                CYW43 join, identity, mDNS resolution
 src/http.c                HTTP/1.1 client on lwIP raw TCP, with a streaming sink
 src/tesserae.c            discover / register / frame / status / log
-src/frame.c               download into PSRAM, length validation, paint
+src/frame.c               download into the frame store, length validation, paint
 src/storage.c             log-structured flash state (pairing, ETag, server config)
 src/ota.c                 signed updates on the RP2350 A/B partitions: install, trial boot, confirm, rollback
 src/ota_verify.c          descriptor signature (Ed25519, Monocypher) and manifest checks
 src/sha256.c              SHA-256 for the image digest
 partitions/pt.json        the A/B partition table
-tests/host/               host tests for the verifier against Tesserae's signed fixtures
+tests/host/               host tests: the verifier against Tesserae's signed fixtures, relay crypto, decks, the log ring, the card store
 src/settings.c            Wi-Fi, server and pairing code from the setup portal
 src/portal.c              setup access point, DHCP, DNS hijack and the web form
 src/screen.c              status pages and the setup page (with its join QR)
-server/hardware/pimoroni/ Tesserae hardware-catalog entries for both revisions
+server/hardware/pimoroni/ Tesserae hardware-catalog entries for every frame
 tools/make_test_frames.py synthetic self-test frame generator
 ```
 

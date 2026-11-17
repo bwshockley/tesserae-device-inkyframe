@@ -1,6 +1,6 @@
-// 8 MB SPI PSRAM (APS6404-class) on the display SPI bus, CS GP3. Used as the
-// frame store: the 192,000-byte panel frame does not fit beside the Wi-Fi
-// stack in the RP2040's SRAM. Sequences follow Pimoroni's psram_display driver.
+// 8 MB SPI PSRAM (APS6404-class) on the display SPI bus, CS GP3: the 7.3"
+// Frame's frame store, behind store.h (the 4.0" and 5.7" have none and use
+// the card instead). Sequences follow Pimoroni's psram_display driver.
 #pragma once
 
 #include <stdbool.h>

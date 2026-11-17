@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Generate a labelled palette test image for the Inky Frame 7.3".
+"""Generate a labelled palette test image for the Inky Frame.
 
-Writes palette_test.png, 800x480, containing the seven ACeP primaries as
+Writes palette_test.png (800x480 for the 7.3" by default; --size 640x400 for
+the 4.0", 600x448 for the 5.7") containing the seven ACeP primaries as
 labelled bars plus a row of secondary patches. Push it to the panel as a
 dashboard image: every bar should show the colour its label names. A bar whose
 colour does not match its label tells you exactly how the panel's palette order
@@ -11,14 +12,19 @@ No third-party modules: the PNG is written directly with zlib, and the text is
 drawn with the same public-domain 8x8 font the firmware uses
 (src/vendor/font8x8_basic.h).
 """
+import argparse
 import pathlib
 import re
 import struct
-import sys
 import zlib
 
-W, H = 800, 480
 HERE = pathlib.Path(__file__).resolve().parent
+ap = argparse.ArgumentParser()
+ap.add_argument("out", nargs="?", default=str(HERE))
+ap.add_argument("--size", default="800x480", help="WxH: 800x480 (7.3\"), 640x400 (4.0\") or 600x448 (5.7\")")
+ARGS = ap.parse_args()
+W, H = (int(v) for v in ARGS.size.lower().split("x"))
+SY = H / 480   # the layout below is the 7.3"'s, scaled vertically
 FONT_H = HERE.parent / "src" / "vendor" / "font8x8_basic.h"
 
 # The seven ACeP (AC073TC1A) primaries, in the panel's own palette-index order.
@@ -75,12 +81,16 @@ def write_png(path, px):
     path.write_bytes(png)
 
 
+def centred(s, scale):
+    return max(0, (W - len(s) * 8 * scale) // 2)
+
+
 def main():
-    out = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else HERE) / "palette_test.png"
+    out = pathlib.Path(ARGS.out) / "palette_test.png"
     px = [[(255, 255, 255)] * W for _ in range(H)]
 
     bar_w = W // len(BARS)
-    bar_top, bar_bottom = 60, 340
+    bar_top, bar_bottom = int(60 * SY), int(340 * SY)
     for i, (name, rgb) in enumerate(BARS):
         x0 = i * bar_w
         x1 = W if i == len(BARS) - 1 else x0 + bar_w
@@ -88,14 +98,17 @@ def main():
             for x in range(x0, x1):
                 px[y][x] = rgb
         # Label above each bar, in black, plus the palette index below it.
-        label_x = x0 + max(2, (bar_w - len(name) * 8 * 2) // 2)
-        draw_text(px, name, label_x, 30, 2, (0, 0, 0))
+        label_scale = 2 if bar_w >= len("YELLOW") * 8 * 2 + 4 else 1
+        label_x = x0 + max(2, (bar_w - len(name) * 8 * label_scale) // 2)
+        draw_text(px, name, label_x, int(30 * SY), label_scale, (0, 0, 0))
         idx = str(i)
         draw_text(px, idx, x0 + (bar_w - 8 * 3) // 2, bar_bottom + 10, 3, (0, 0, 0))
 
-    draw_text(px, "INKY FRAME 7.3 PALETTE TEST", 120, 6, 2, (0, 0, 0))
-    draw_text(px, "EACH BAR SHOULD MATCH ITS LABEL", 100, 400, 2, (0, 0, 0))
-    draw_text(px, "REPORT ANY BAR THAT DOES NOT", 120, 430, 2, (255, 0, 0))
+    title = "INKY FRAME PALETTE TEST"
+    draw_text(px, title, centred(title, 2), 6, 2, (0, 0, 0))
+    l1, l2 = "EACH BAR SHOULD MATCH ITS LABEL", "REPORT ANY BAR THAT DOES NOT"
+    draw_text(px, l1, centred(l1, 2), int(400 * SY), 2, (0, 0, 0))
+    draw_text(px, l2, centred(l2, 2), int(430 * SY), 2, (255, 0, 0))
 
     write_png(out, px)
     print("wrote", out, out.stat().st_size, "bytes")

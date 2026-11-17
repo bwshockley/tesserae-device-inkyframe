@@ -1,5 +1,5 @@
-// Full-screen text pages for states with no dashboard to show. Rendered into
-// the PSRAM frame store with the public-domain font8x8, then painted.
+// Full-screen text pages for states with no dashboard to show. Rendered with
+// the public-domain font8x8 straight to the panel, a band of rows at a time.
 #pragma once
 
 #include <stdbool.h>

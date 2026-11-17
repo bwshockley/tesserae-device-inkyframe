@@ -1,4 +1,4 @@
-// Build-time configuration for the Inky Frame 7.3" Tesserae client.
+// Build-time configuration for the Inky Frame Tesserae client (4.0", 5.7", 7.3").
 //
 // Wi-Fi and the server are entered in the setup portal and kept in flash
 // (settings.c). include/secrets.h (git-ignored, optional) seeds them on first
@@ -27,72 +27,51 @@
 #endif
 
 // ---- panel variant ----------------------------------------------------------
-// Support for three different Inky Frame devices is included: 4.0", 5.7", and 7.3".
-// The 4.0" and 5.7" only use the ACEP panel.
-// The 7.3" Inky Frame shipped with two different panels that share every pin:
-//   PANEL_ACEP     original 7-colour ACeP (AC073TC1A): black, white, green, blue,
-//                  red, yellow, orange. Units sold before September 2025.
-//   PANEL_SPECTRA  Spectra 6 (E673): black, white, yellow, red, blue, green.
+// Three Inky Frame sizes are supported: 4.0", 5.7" and 7.3". All share the
+// same pins; the variant decides the geometry, the kind/gamut announced and
+// the panel init sequence.
+//   PANEL_4           4.0" 640x400, 7-colour ACeP (UC8159).
+//   PANEL_57          5.7" 600x448, 7-colour ACeP (UC8159).
+//   PANEL_73_ACEP     7.3" 800x480, 7-colour ACeP (AC073TC1A): black, white,
+//                     green, blue, red, yellow, orange. Sold before Sept 2025.
+//   PANEL_73_SPECTRA  7.3" 800x480, Spectra 6 (E673): black, white, yellow,
+//                     red, blue, green. Shipped from September 2025.
 // The server packs palette indices in the panel's own order for the declared
-// gamut, so the choice decides the kind/gamut announced and the init sequence.
+// gamut.
 #define PANEL_4             1
 #define PANEL_57            2
 #define PANEL_73_ACEP       3
 #define PANEL_73_SPECTRA    4
 #ifndef PANEL_VARIANT
-#define PANEL_VARIANT  PANEL_4
+#define PANEL_VARIANT  PANEL_73_ACEP
+#endif
+#if PANEL_VARIANT < PANEL_4 || PANEL_VARIANT > PANEL_73_SPECTRA
+#error "PANEL_VARIANT must be one of PANEL_4, PANEL_57, PANEL_73_ACEP, PANEL_73_SPECTRA"
 #endif
 
 // ---- identity ---------------------------------------------------------------
 // device_id must match ^[a-z][a-z0-9_-]{1,31}$ . The server may hand back a
 // different id on MAC match (a re-flashed board); the firmware adopts it.
-
 #if PANEL_VARIANT == PANEL_4
 #define DEVICE_ID            "inky_frame_40"
 #define DEVICE_NAME          "Inky Frame 4.0"
+#define DEVICE_KIND          "pimoroni_inky_frame_40_acep"
 #elif PANEL_VARIANT == PANEL_57
 #define DEVICE_ID            "inky_frame_57"
 #define DEVICE_NAME          "Inky Frame 5.7"
-#elif PANEL_VARIANT == PANEL_73_ACEP || PANEL_73_SPECTRA
+#define DEVICE_KIND          "pimoroni_inky_frame_57_acep"
+#elif PANEL_VARIANT == PANEL_73_ACEP
 #define DEVICE_ID            "inky_frame_73"
 #define DEVICE_NAME          "Inky Frame 7.3"
+#define DEVICE_KIND          "pimoroni_inky_frame_73_acep"
+#else
+#define DEVICE_ID            "inky_frame_73"
+#define DEVICE_NAME          "Inky Frame 7.3"
+#define DEVICE_KIND          "pimoroni_inky_frame_73"
 #endif
 
-#if PANEL_VARIANT == PANEL_4
-#define DEVICE_KIND          "pimoroni_inky_frame_40_acep"
-#define DEVICE_GAMUT         "inky_7colour"
-#define PAL_BLACK  0
-#define PAL_WHITE  1
-#define PAL_GREEN  2
-#define PAL_BLUE   3
-#define PAL_RED    4
-#define PAL_YELLOW 5
-#define PAL_ORANGE 6
-#define PAL_COUNT  7
-#elif PANEL_VARIANT == PANEL_57
-#define DEVICE_KIND          "pimoroni_inky_frame_57_acep"
-#define DEVICE_GAMUT         "inky_7colour"
-#define PAL_BLACK  0
-#define PAL_WHITE  1
-#define PAL_GREEN  2
-#define PAL_BLUE   3
-#define PAL_RED    4
-#define PAL_YELLOW 5
-#define PAL_ORANGE 6
-#define PAL_COUNT  7
-#elif PANEL_VARIANT == PANEL_73_ACEP 
-#define DEVICE_KIND          "pimoroni_inky_frame_73_acep"
-#define DEVICE_GAMUT         "inky_7colour"
-#define PAL_BLACK  0
-#define PAL_WHITE  1
-#define PAL_GREEN  2
-#define PAL_BLUE   3
-#define PAL_RED    4
-#define PAL_YELLOW 5
-#define PAL_ORANGE 6
-#define PAL_COUNT  7
-#else
-#define DEVICE_KIND          "pimoroni_inky_frame_73"
+// Palette indices in the panel's own order.
+#if PANEL_VARIANT == PANEL_73_SPECTRA
 #define DEVICE_GAMUT         "spectra_6"
 #define PAL_BLACK  0
 #define PAL_WHITE  1
@@ -100,6 +79,17 @@
 #define PAL_RED    3
 #define PAL_BLUE   5
 #define PAL_GREEN  6
+#define PAL_COUNT  7
+#else
+// 7-colour ACeP: the same order on the UC8159 (4.0", 5.7") and AC073TC1A (7.3").
+#define DEVICE_GAMUT         "inky_7colour"
+#define PAL_BLACK  0
+#define PAL_WHITE  1
+#define PAL_GREEN  2
+#define PAL_BLUE   3
+#define PAL_RED    4
+#define PAL_YELLOW 5
+#define PAL_ORANGE 6
 #define PAL_COUNT  7
 #endif
 // Stock kind used if the catalog entry above is not installed on the server.
@@ -122,16 +112,30 @@
 #elif PANEL_VARIANT == PANEL_57
 #define PANEL_W              600
 #define PANEL_H              448
-#elif PANEL_VARIANT == PANEL_73_ACEP || PANEL_73_SPECTRA
+#else
 #define PANEL_W              800
 #define PANEL_H              480
 #endif
 
 #define PANEL_ROTATION       0
-#define FRAME_BYTES          (PANEL_W * PANEL_H / 2)
-#define ROW_BYTES            (PANEL_W / 2)
+#define FRAME_BYTES          (PANEL_W * PANEL_H / 2)   // 128000 / 134400 / 192000
+#define ROW_BYTES            (PANEL_W / 2)             // 320 / 300 / 400
 
-// ---- pins (Inky Frame, both revisions) --------------------------------------
+// ---- frame store ------------------------------------------------------------
+// Frames are too big for the Pico's SRAM once Wi-Fi and TLS have theirs, so
+// they live in a frame store (src/store.c): the 7.3" carries 8 MB of SPI PSRAM;
+// the 4.0" and 5.7" have none and keep the store in a file on the microSD card,
+// which those frames therefore need. -DBOARD_HAS_PSRAM=0 tries the card store
+// on a 7.3" at the bench. The store's layout is at the end of this file.
+#ifndef BOARD_HAS_PSRAM
+#if PANEL_VARIANT == PANEL_73_ACEP || PANEL_VARIANT == PANEL_73_SPECTRA
+#define BOARD_HAS_PSRAM      1
+#else
+#define BOARD_HAS_PSRAM      0
+#endif
+#endif
+
+// ---- pins (Inky Frame, every size and revision) -----------------------------
 #define PIN_HOLD_VSYS_EN     2
 #define PIN_PSRAM_CS         3
 #define PIN_I2C_SDA          4
@@ -227,8 +231,7 @@
 #define WIFI_HOSTNAME             "inky-frame"
 
 // ---- over-the-air updates (RP2350 only; see src/ota.h) ----------------------
-// Downloaded images are staged in PSRAM above the frame store.
-#define OTA_PSRAM_OFFSET          (1024u * 1024u)
+// Downloaded images are staged in the frame store at OTA_PSRAM_OFFSET (below).
 #define OTA_DOWNLOAD_TIMEOUT_MS   120000
 // A trial boot must join Wi-Fi and confirm within this, or it reverts.
 #define OTA_TRIAL_DEADLINE_MS     90000
@@ -238,24 +241,49 @@
 #define OTA_MIN_VSYS_MV           3300
 
 // OTA logs (src/diag.h): the log this boot and the tail carried over a
-// reboot, uploaded tagged as an OTA log. The tail is kept in PSRAM, which
-// keeps its contents across a reboot that does not drop power (the install's
-// reboot, a trial that gives up) but not across a battery sleep.
-#define OTA_LOG_CARRY_PSRAM_OFFSET (7u * 1024u * 1024u)
+// reboot, uploaded tagged as an OTA log. The tail is kept in the frame store
+// at OTA_LOG_CARRY_PSRAM_OFFSET (below): PSRAM keeps its contents across a
+// reboot that does not drop power (the install's reboot, a trial that gives
+// up) but not across a battery sleep; the card store keeps it through both.
 #define OTA_LOG_CARRY_BYTES       (32u * 1024u)
 #define OTA_LOG_BODY_MAX          (60u * 1024u)   // under the server's 64 KB
 #define OTA_LOG_TIMEOUT_MS        6000
 
 // ---- cloud relay (src/relay.c) ----------------------------------------------
 #define RELAY_DEFAULT_URL         "https://relay.tesserae.ink"
-// Sealed frames are staged in PSRAM here before they are opened into the
-// frame store at 0.
-#define RELAY_PSRAM_OFFSET        (4u * 1024u * 1024u)
+// Sealed frames are staged in the frame store at RELAY_PSRAM_OFFSET (below)
+// before they are opened into the frame at 0.
 
 // ---- SD card cache (src/cache.c) --------------------------------------------
-// Frames being downloaded to the card are staged in PSRAM here.
-#define CACHE_PSRAM_OFFSET        (6u * 1024u * 1024u)
+// Frames being downloaded to the card are staged in the frame store at
+// CACHE_PSRAM_OFFSET (below).
 // Album intervals are clamped like the sleep interval, as on the ESP32 firmware.
 #define ALBUM_MIN_INTERVAL_S      SLEEP_MIN_S
 #define ALBUM_MAX_INTERVAL_S      SLEEP_MAX_S
 #define ALBUM_DEFAULT_INTERVAL_S  SLEEP_DEFAULT_S
+
+// ---- frame store layout (src/store.c) ---------------------------------------
+// The frame itself is at 0; the regions below stage downloads that are not
+// yet frames. Every offset is in bytes from the start of the store.
+#if BOARD_HAS_PSRAM
+// 8 MB of PSRAM; the regions are spread out.
+#define STORE_BYTES                (8u * 1024u * 1024u)
+#define OTA_PSRAM_OFFSET           (1024u * 1024u)
+#define RELAY_PSRAM_OFFSET         (4u * 1024u * 1024u)
+#define CACHE_PSRAM_OFFSET         (6u * 1024u * 1024u)
+#define OTA_LOG_CARRY_PSRAM_OFFSET (7u * 1024u * 1024u)
+#else
+// A file on the microSD card; the regions follow each other, 4 KB aligned.
+// A frame region has room for a sealed relay frame (nonce and tag on top).
+#define STORE_ALIGN_4K(n)          (((n) + 4095u) & ~4095u)
+#define STORE_FRAME_REGION         STORE_ALIGN_4K(FRAME_BYTES + 4096u)
+#define RELAY_PSRAM_OFFSET         (1u * STORE_FRAME_REGION)
+#define CACHE_PSRAM_OFFSET         (2u * STORE_FRAME_REGION)
+#define OTA_LOG_CARRY_PSRAM_OFFSET (3u * STORE_FRAME_REGION)
+#define OTA_PSRAM_OFFSET           (OTA_LOG_CARRY_PSRAM_OFFSET + STORE_ALIGN_4K(16u + OTA_LOG_CARRY_BYTES))
+#if PICO_RP2350
+#define STORE_BYTES                (OTA_PSRAM_OFFSET + 2048u * 1024u)   // an A/B slot is 2036 KB
+#else
+#define STORE_BYTES                OTA_PSRAM_OFFSET                     // no OTA on the RP2040
+#endif
+#endif

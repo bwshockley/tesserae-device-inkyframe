@@ -6,13 +6,13 @@
 #include "config.h"
 #include "epd.h"
 #include "log.h"
-#include "psram.h"
 #include "vendor/font8x8_basic.h"
 #include "vendor/qrcodegen.h"
 
-// A page is a small list of text items; the frame is composed into PSRAM in
-// bands of 8 rows so only a 3,200-byte SRAM buffer is needed. Text is laid out
-// by text(), which wraps and shrinks it to fit its column.
+// A page is a small list of text items; the frame is rendered in bands of 8
+// rows as the panel takes them, so only a small SRAM buffer is needed and no
+// frame store at all (a 4.0" or 5.7" without its card can still say so).
+// Text is laid out by text(), which wraps and shrinks it to fit its column.
 typedef struct {
     const char *text;
     int len;
@@ -137,12 +137,12 @@ static void draw_logo(uint8_t *band, int band_y)
 static void header(void)
 {
     s_has_logo = true;
-    text("Tesserae", LOGO_X + LOGO_SIZE + 16, LOGO_Y + (LOGO_SIZE - 24) / 2, 400, 3, 3, 1, PAL_BLACK);
+    text("Tesserae", LOGO_X + LOGO_SIZE + 16, LOGO_Y + (LOGO_SIZE - 24) / 2, CONTENT_W - LOGO_SIZE - 16, 3, 3, 1, PAL_BLACK);
 }
 
 static void footer(void)
 {
-    text("Inky Frame 7.3 / Tesserae client v" FW_VERSION, MARGIN, FOOTER_Y, CONTENT_W, 2, 2, 1, PAL_BLACK);
+    text(DEVICE_NAME " / Tesserae client v" FW_VERSION, MARGIN, FOOTER_Y, CONTENT_W, 2, 2, 1, PAL_BLACK);
 }
 
 static void set_pixel(uint8_t *band, int x, int y, uint8_t c)
@@ -211,31 +211,34 @@ static void draw_qr(uint8_t *band, int band_y)
     }
 }
 
-static void compose(void)
-{
-    static uint8_t band[ROW_BYTES * 8];
-    for (int y = 0; y < PANEL_H; y += 8) {
-        memset(band, (PAL_WHITE << 4) | PAL_WHITE, sizeof band);
-        for (int i = 0; i < s_nitems; i++) draw_item(band, y, &s_items[i]);
-        draw_qr(band, y);
-        draw_logo(band, y);
-        psram_write((uint32_t)y * ROW_BYTES, band, sizeof band);
-    }
-}
+// Supplies row `y` to the panel, rendering its band of 8 rows on first touch.
+// The Spectra Frame asks for rows last to first; a band is still rendered once.
+static uint8_t s_band[ROW_BYTES * 8];
+static int s_band_y;
+_Static_assert(PANEL_H % 8 == 0, "bands of 8 rows must tile the panel");
 
-static void psram_row(int y, uint8_t *out, void *arg)
+static void band_row(int y, uint8_t *out, void *arg)
 {
     (void)arg;
-    psram_read((uint32_t)y * ROW_BYTES, out, ROW_BYTES);
+    int top = y & ~7;
+    if (top != s_band_y) {
+        s_band_y = top;
+        memset(s_band, (PAL_WHITE << 4) | PAL_WHITE, sizeof s_band);
+        for (int i = 0; i < s_nitems; i++) draw_item(s_band, top, &s_items[i]);
+        draw_qr(s_band, top);
+        draw_logo(s_band, top);
+    }
+    memcpy(out, s_band + (y - top) * ROW_BYTES, ROW_BYTES);
 }
 
 static bool paint(void)
 {
-    compose();
+    s_band_y = -1;
+    bool ok = epd_paint(band_row, NULL);
     reset_page();
     s_has_qr = false;
     s_has_logo = false;
-    return epd_paint(psram_row, NULL);
+    return ok;
 }
 
 bool screen_pairing(const char *device_id, const char *mac, const char *server_url, const char *kind, const char *note)
@@ -280,20 +283,24 @@ bool screen_setup(const char *ap_ssid, const char *ap_pass, const char *portal_u
     snprintf(l_pass, sizeof l_pass, "password: %s", ap_pass);
     snprintf(l_qr, sizeof l_qr, "WIFI:T:WPA;S:%s;P:%s;;", ap_ssid, ap_pass);
     (void)portal_url;
-    // Text keeps to the left of the QR code (x 540..780).
-    const int col_w = 520 - MARGIN, ind = MARGIN + 32;
+    // The QR code sits top right; the text keeps to its left. On the 7.3"
+    // the code is 240 px at x 540..780; the smaller panels get a 200 px code
+    // and a narrower column, with less of an indent so the setup network's
+    // name still fits on one line.
+    const int qr_px = PANEL_W >= 800 ? 240 : 200, qr_x = PANEL_W - 20 - qr_px;
+    const int col_w = qr_x - 20 - MARGIN, ind = MARGIN + (PANEL_W >= 800 ? 32 : 16);
     reset_page();
     header();
     int y = text("Set up this frame", MARGIN, HEADER_END, CONTENT_W, 4, 3, 1, PAL_RED) + 20;
     y = text(reason, MARGIN, y, col_w, 2, 2, 5, PAL_BLUE) + 24;
     if (y < HEADER_END + 72) y = HEADER_END + 72;
     y = text("1. Join the Wi-Fi network", MARGIN, y, col_w, 2, 2, 2, PAL_BLACK) + 12;
-    y = text(l_ssid, ind, y, col_w - 32, 2, 2, 2, PAL_BLACK) + 8;
-    y = text(l_pass, ind, y, col_w - 32, 2, 2, 2, PAL_BLACK) + 24;
+    y = text(l_ssid, ind, y, col_w - (ind - MARGIN), 2, 2, 2, PAL_BLACK) + 8;
+    y = text(l_pass, ind, y, col_w - (ind - MARGIN), 2, 2, 2, PAL_BLACK) + 24;
     y = text("2. Open " SETUP_PORTAL_URL, MARGIN, y, col_w, 2, 2, 2, PAL_BLACK) + 24;
     text("3. Enter your Wi-Fi + server", MARGIN, y, col_w, 2, 2, 2, PAL_BLACK);
     footer();
-    set_qr(l_qr, 540, HEADER_END + 40, 240);
+    set_qr(l_qr, qr_x, HEADER_END + 40, qr_px);
     LOGI("screen: setup page (%s)", ap_ssid);
     return paint();
 }

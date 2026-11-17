@@ -122,7 +122,7 @@ void ota_offer(const char *payload, const char *signature, const char *kind, boo
 #include "http.h"
 #include "ota_verify.h"
 #include "power.h"
-#include "psram.h"
+#include "store.h"
 #include "sha256.h"
 #include "wifi.h"
 
@@ -244,7 +244,7 @@ static bool target_slot(slot_t *out)
     return true;
 }
 
-// ---- download into PSRAM, hashing as it streams ----
+// ---- download into the frame store, hashing as it streams ----
 
 typedef struct {
     uint32_t want, got;
@@ -264,7 +264,7 @@ static void sink(const uint8_t *data, size_t len, void *arg)
 {
     dl_t *d = arg;
     if (d->got + len > d->want) len = d->want - d->got;
-    psram_write(OTA_PSRAM_OFFSET + d->got, data, len);
+    store_write(OTA_PSRAM_OFFSET + d->got, data, len);
     sha256_update(&d->sha, data, len);
     d->got += (uint32_t)len;
 }
@@ -275,7 +275,7 @@ static bool image_looks_valid(uint32_t size)
 {
     static uint8_t head[4096];
     uint32_t n = size < sizeof head ? size : sizeof head;
-    psram_read(OTA_PSRAM_OFFSET, head, n);
+    store_read(OTA_PSRAM_OFFSET, head, n);
     for (uint32_t i = 0; i + 4 <= n; i += 4) {
         uint32_t w = (uint32_t)head[i] | (uint32_t)head[i + 1] << 8 | (uint32_t)head[i + 2] << 16 | (uint32_t)head[i + 3] << 24;
         if (w == PICOBIN_BLOCK_MARKER_START) return true;
@@ -289,7 +289,7 @@ static bool write_partition(const slot_t *slot, uint32_t size)
     for (uint32_t off = 0; off < size; off += FLASH_SECTOR_SIZE) {
         uint32_t n = size - off < FLASH_SECTOR_SIZE ? size - off : FLASH_SECTOR_SIZE;
         memset(buf, 0xFF, sizeof buf);
-        psram_read(OTA_PSRAM_OFFSET + off, buf, n);
+        store_read(OTA_PSRAM_OFFSET + off, buf, n);
         uint32_t ints = save_and_disable_interrupts();
         flash_range_erase(slot->start + off, FLASH_SECTOR_SIZE);
         flash_range_program(slot->start + off, buf, FLASH_SECTOR_SIZE);
@@ -356,7 +356,7 @@ void ota_offer(const char *payload, const char *signature, const char *kind, boo
     http_resp_t r;
     int code = http_request("GET", url, NULL, 0, NULL, &r, on_length, sink, &dl, OTA_DOWNLOAD_TIMEOUT_MS, DOWNLOAD_STALL_TIMEOUT_MS);
     http_resp_free(&r);
-    if (code != 200 || dl.got != dl.want) {
+    if (code != 200 || dl.got != dl.want || !store_sync()) {
         char d[48]; snprintf(d, sizeof d, "http %d, %lu/%lu bytes", code, (unsigned long)dl.got, (unsigned long)dl.want);
         report(PH_FAILED, (!dl.length_ok && code == HTTP_ERR_ABORTED) ? R_SIZE_MISMATCH : R_DOWNLOAD_ERROR, m.fw_version, attempt, d);
         return;
@@ -371,7 +371,7 @@ void ota_offer(const char *payload, const char *signature, const char *kind, boo
 
     // The download and the checks, as an OTA log, while the radio is still up
     // (bounded; its outcome does not matter to the install). The slot write
-    // and the reboot are carried to the next boot in PSRAM.
+    // and the reboot are carried to the next boot in the frame store.
     diag_upload_ota_log(wifi_server_base(), storage_device_id(), storage_token(), PHASES[PH_VALIDATING], m.fw_version, attempt);
 
     // Flash with the radio down; the frame reboots straight after.

@@ -10,12 +10,12 @@
 #include "http.h"
 #include "json_num.h"
 #include "log.h"
-#include "psram.h"
 #include "sdcard.h"
 #include "vendor/fatfs/ff.h"
 #include "rtc.h"
 #include "settings.h"
 #include "storage.h"
+#include "store.h"
 
 static const char *s_wake = "unknown";
 static uint32_t s_boot_epoch;
@@ -121,13 +121,13 @@ void diag_upload_log(const char *base, const char *device_id, const char *token)
 
 // ---- OTA logs ----
 
-// The carried tail in PSRAM: this header, then `len` bytes of log text.
+// The carried tail in the frame store: this header, then `len` bytes of log text.
 #define CARRY_MAGIC 0x474C544Fu   // "OTLG"
 #define CARRY_DATA  (OTA_LOG_CARRY_PSRAM_OFFSET + 16u)
 typedef struct { uint32_t magic, len, crc, check; } carry_hdr_t;
 
 _Static_assert(LOG_RING_BYTES + 128 <= OTA_LOG_CARRY_BYTES, "a whole ring must fit the carry");
-_Static_assert(OTA_LOG_CARRY_PSRAM_OFFSET + 16 + OTA_LOG_CARRY_BYTES <= 8u * 1024u * 1024u, "carry past the PSRAM");
+_Static_assert(OTA_LOG_CARRY_PSRAM_OFFSET + 16 + OTA_LOG_CARRY_BYTES <= STORE_BYTES, "carry past the frame store");
 _Static_assert(CACHE_PSRAM_OFFSET + FRAME_BYTES <= OTA_LOG_CARRY_PSRAM_OFFSET, "carry overlaps the card staging");
 
 static uint32_t s_carry_len;    // bytes carried in from before the reboot
@@ -150,7 +150,7 @@ static uint32_t carry_crc(uint32_t len)
     uint32_t crc = 0;
     for (uint32_t off = 0; off < len; off += sizeof buf) {
         uint32_t k = len - off < sizeof buf ? len - off : sizeof buf;
-        psram_read(CARRY_DATA + off, buf, k);
+        store_read(CARRY_DATA + off, buf, k);
         crc = crc32_update(crc, buf, k);
     }
     return crc;
@@ -160,13 +160,13 @@ static void carry_write_header(uint32_t len)
 {
     carry_hdr_t h = { len ? CARRY_MAGIC : 0, len, len ? carry_crc(len) : 0, 0 };
     h.check = ~(h.magic ^ h.len ^ h.crc);
-    psram_write(OTA_LOG_CARRY_PSRAM_OFFSET, (const uint8_t *)&h, sizeof h);
+    store_write(OTA_LOG_CARRY_PSRAM_OFFSET, (const uint8_t *)&h, sizeof h);
 }
 
 void diag_carry_begin(void)
 {
     carry_hdr_t h;
-    psram_read(OTA_LOG_CARRY_PSRAM_OFFSET, (uint8_t *)&h, sizeof h);
+    store_read(OTA_LOG_CARRY_PSRAM_OFFSET, (uint8_t *)&h, sizeof h);
     s_carry_len = 0;
     if (h.magic != CARRY_MAGIC || h.check != ~(h.magic ^ h.len ^ h.crc) || !h.len || h.len > OTA_LOG_CARRY_BYTES) return;
     if (carry_crc(h.len) != h.crc) { LOGW("diag: the carried log failed its check; dropped"); carry_write_header(0); return; }
@@ -189,14 +189,15 @@ void diag_carry_save(void)
         uint8_t chunk[256];
         for (uint32_t off = 0; off + drop < keep; off += sizeof chunk) {
             uint32_t k = keep - drop - off < sizeof chunk ? keep - drop - off : sizeof chunk;
-            psram_read(CARRY_DATA + drop + off, chunk, k);
-            psram_write(CARRY_DATA + off, chunk, k);
+            store_read(CARRY_DATA + drop + off, chunk, k);
+            store_write(CARRY_DATA + off, chunk, k);
         }
         keep -= drop;
     }
-    psram_write(CARRY_DATA + keep, (const uint8_t *)buf, n);
+    store_write(CARRY_DATA + keep, (const uint8_t *)buf, n);
     free(buf);
     carry_write_header(keep + (uint32_t)n);
+    if (!store_sync()) { LOGW("diag: the log did not reach the frame store"); return; }
     LOGI("diag: %lu bytes of log saved for the next boot", (unsigned long)(keep + n));
 }
 
@@ -221,7 +222,7 @@ bool diag_upload_ota_log(const char *base, const char *device_id, const char *to
         n += (size_t)snprintf(body + n, head_room - n, "# --- carried over the reboot (%lu bytes) ---\n", (unsigned long)carry);
         // The newest `carry` bytes, from a whole line on.
         char *t = body + n;
-        psram_read(CARRY_DATA + (s_carry_len - carry), (uint8_t *)t, carry);
+        store_read(CARRY_DATA + (s_carry_len - carry), (uint8_t *)t, carry);
         size_t got = carry;
         char *nl = carry < s_carry_len ? memchr(t, '\n', got) : NULL;
         if (nl) { size_t skip = (size_t)(nl - t) + 1; memmove(t, nl + 1, got - skip); got -= skip; }

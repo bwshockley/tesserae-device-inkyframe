@@ -30,10 +30,10 @@ into this repository.
 ## Derived know-how, no code copied
 
 The panel initialisation register sequences in [src/epd.c](src/epd.c) are the
-published command sequences for the AC073TC1A and E673 controllers, taken from
-Pimoroni's MIT-licensed drivers:
+published command sequences for the UC8159, AC073TC1A and E673 controllers,
+taken from Pimoroni's MIT-licensed drivers:
 
-- [pimoroni/pimoroni-pico](https://github.com/pimoroni/pimoroni-pico) `drivers/inky73` (MIT)
+- [pimoroni/pimoroni-pico](https://github.com/pimoroni/pimoroni-pico) `drivers/uc8159` and `drivers/inky73` (MIT)
 - [pimoroni/inky](https://github.com/pimoroni/inky) `inky/inky_e673.py` (MIT)
 
 The PCF85063A register usage in [src/rtc.c](src/rtc.c) and the PSRAM burst

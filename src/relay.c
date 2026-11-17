@@ -11,9 +11,9 @@
 #include "http.h"
 #include "log.h"
 #include "ota_verify.h"     // ota_b64url_decode
-#include "psram.h"
 #include "relay_crypto.h"
 #include "settings.h"
+#include "store.h"
 #include "vendor/cJSON.h"
 
 #define SEALED_FRAME_BYTES (FRAME_BYTES + RELAY_SEAL_OVERHEAD)
@@ -134,29 +134,29 @@ static void frame_sink(const uint8_t *data, size_t len, void *arg)
 {
     dl_t *d = arg;
     if (d->got + len > SEALED_FRAME_BYTES) len = SEALED_FRAME_BYTES - d->got;
-    psram_write(RELAY_PSRAM_OFFSET + d->got, data, len);
+    store_write(RELAY_PSRAM_OFFSET + d->got, data, len);
     d->got += (uint32_t)len;
 }
 
-// Open the sealed frame staged in PSRAM into the frame store at 0. The
+// Open the sealed frame staged in the frame store into the frame at 0. The
 // plaintext is only declared complete once the tag has authenticated it.
 static bool open_frame(void)
 {
     const uint8_t *key = settings_relay_key();
     if (!key) return false;
     uint8_t nonce[RELAY_NONCE_BYTES], tag[RELAY_TAG_BYTES];
-    psram_read(RELAY_PSRAM_OFFSET, nonce, sizeof nonce);
-    psram_read(RELAY_PSRAM_OFFSET + RELAY_NONCE_BYTES + FRAME_BYTES, tag, sizeof tag);
+    store_read(RELAY_PSRAM_OFFSET, nonce, sizeof nonce);
+    store_read(RELAY_PSRAM_OFFSET + RELAY_NONCE_BYTES + FRAME_BYTES, tag, sizeof tag);
     relay_unseal_t u;
     if (!relay_unseal_begin(&u, key, nonce)) return false;
     static uint8_t in[4096], out[4096 + 16];
     for (uint32_t off = 0; off < FRAME_BYTES; off += sizeof in) {
         uint32_t n = FRAME_BYTES - off < sizeof in ? FRAME_BYTES - off : sizeof in;
-        psram_read(RELAY_PSRAM_OFFSET + RELAY_NONCE_BYTES + off, in, n);
+        store_read(RELAY_PSRAM_OFFSET + RELAY_NONCE_BYTES + off, in, n);
         if (!relay_unseal_update(&u, in, n, out)) { relay_unseal_finish(&u, tag); return false; }
-        psram_write(off, out, n);
+        store_write(off, out, n);
     }
-    return relay_unseal_finish(&u, tag);
+    return relay_unseal_finish(&u, tag) && store_sync();
 }
 
 int relay_fetch_frame(const char *etag, bool *opened, char *etag_out, size_t etag_cap)
