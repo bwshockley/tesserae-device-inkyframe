@@ -27,25 +27,60 @@
 #endif
 
 // ---- panel variant ----------------------------------------------------------
+// Support for three different Inky Frame devices is included: 4.0", 5.7", and 7.3".
+// The 4.0" and 5.7" only use the ACEP panel.
 // The 7.3" Inky Frame shipped with two different panels that share every pin:
 //   PANEL_ACEP     original 7-colour ACeP (AC073TC1A): black, white, green, blue,
 //                  red, yellow, orange. Units sold before September 2025.
 //   PANEL_SPECTRA  Spectra 6 (E673): black, white, yellow, red, blue, green.
 // The server packs palette indices in the panel's own order for the declared
 // gamut, so the choice decides the kind/gamut announced and the init sequence.
-#define PANEL_ACEP     1
-#define PANEL_SPECTRA  2
+#define PANEL_4             1
+#define PANEL_57            2
+#define PANEL_73_ACEP       3
+#define PANEL_73_SPECTRA    4
 #ifndef PANEL_VARIANT
-#define PANEL_VARIANT  PANEL_ACEP
+#define PANEL_VARIANT  PANEL_4
 #endif
 
 // ---- identity ---------------------------------------------------------------
 // device_id must match ^[a-z][a-z0-9_-]{1,31}$ . The server may hand back a
 // different id on MAC match (a re-flashed board); the firmware adopts it.
+
+#if PANEL_VARIANT == PANEL_4
+#define DEVICE_ID            "inky_frame_40"
+#define DEVICE_NAME          "Inky Frame 4.0"
+#elif PANEL_VARIANT == PANEL_57
+#define DEVICE_ID            "inky_frame_57"
+#define DEVICE_NAME          "Inky Frame 5.7"
+#elif PANEL_VARIANT == PANEL_73_ACEP || PANEL_73_SPECTRA
 #define DEVICE_ID            "inky_frame_73"
 #define DEVICE_NAME          "Inky Frame 7.3"
+#endif
 
-#if PANEL_VARIANT == PANEL_ACEP
+#if PANEL_VARIANT == PANEL_4
+#define DEVICE_KIND          "pimoroni_inky_frame_40_acep"
+#define DEVICE_GAMUT         "inky_7colour"
+#define PAL_BLACK  0
+#define PAL_WHITE  1
+#define PAL_GREEN  2
+#define PAL_BLUE   3
+#define PAL_RED    4
+#define PAL_YELLOW 5
+#define PAL_ORANGE 6
+#define PAL_COUNT  7
+#elif PANEL_VARIANT == PANEL_57
+#define DEVICE_KIND          "pimoroni_inky_frame_57_acep"
+#define DEVICE_GAMUT         "inky_7colour"
+#define PAL_BLACK  0
+#define PAL_WHITE  1
+#define PAL_GREEN  2
+#define PAL_BLUE   3
+#define PAL_RED    4
+#define PAL_YELLOW 5
+#define PAL_ORANGE 6
+#define PAL_COUNT  7
+#elif PANEL_VARIANT == PANEL_73_ACEP 
 #define DEVICE_KIND          "pimoroni_inky_frame_73_acep"
 #define DEVICE_GAMUT         "inky_7colour"
 #define PAL_BLACK  0
@@ -73,17 +108,28 @@
 #define DEVICE_KIND_FALLBACK "pico_bin_client"
 
 // ---- panel geometry ---------------------------------------------------------
-// Landscape-native 800x480 buffer, 4 bpp, high nibble = left pixel.
+// 4.0" = Landscape-native 640x400 buffer, 4 bpp, high nibble = left pixel.
+// 5.7" = Landscape-native 600x448 buffer, 4 bpp, high nibble = left pixel.
+// 7.3" = Landscape-native 800x480 buffer, 4 bpp, high nibble = left pixel.
 // PANEL_ROTATION is the turn the server applies from this buffer to the
 // dashboard (0/90/180/270). Verified on the bench with tools/make_test_frames.py:
 // standing on its legs, the buffer origin is the physical top-left and the
 // test triangle points left as generated, so no turn is needed. Read once at
 // registration; afterwards change it from Settings -> Devices -> Rotation.
+#if PANEL_VARIANT == PANEL_4
+#define PANEL_W              640
+#define PANEL_H              400
+#elif PANEL_VARIANT == PANEL_57
+#define PANEL_W              600
+#define PANEL_H              448
+#elif PANEL_VARIANT == PANEL_73_ACEP || PANEL_73_SPECTRA
 #define PANEL_W              800
 #define PANEL_H              480
+#endif
+
 #define PANEL_ROTATION       0
-#define FRAME_BYTES          (PANEL_W * PANEL_H / 2)   // 192000
-#define ROW_BYTES            (PANEL_W / 2)             // 400
+#define FRAME_BYTES          (PANEL_W * PANEL_H / 2)
+#define ROW_BYTES            (PANEL_W / 2)
 
 // ---- pins (Inky Frame, both revisions) --------------------------------------
 #define PIN_HOLD_VSYS_EN     2
@@ -178,7 +224,7 @@
 
 // ---- misc -------------------------------------------------------------------
 #define EPD_REFRESH_TIMEOUT_MS    50000
-#define WIFI_HOSTNAME             "inky-frame-73"
+#define WIFI_HOSTNAME             "inky-frame"
 
 // ---- over-the-air updates (RP2350 only; see src/ota.h) ----------------------
 // Downloaded images are staged in PSRAM above the frame store.
