@@ -179,6 +179,17 @@ reported on the next check-in and re-sent until the server has it; it is kept in
 flash, so a frame on battery still reports it after powering off. On battery
 each wake is a fresh boot, so the ring holds that wake's log.
 
+For a cloud-relay connection failure during setup, capture the USB serial log
+at 115200 baud. Before the generic `http: connect failed` message, HTTPS logs
+identify TLS configuration, connection allocation/setup, hostname setup, or
+connection-start failures (including the error code where available). Redact
+pairing codes, including those in URLs, and credentials before sharing logs.
+The setup portal allocates its page-building buffers only while it is open,
+leaving about 24 KB more RAM for TLS during normal operation on the Pico W.
+Buffered HTTP replies grow with the received body, up to the 24 KB JSON limit;
+a small pairing reply does not reserve the whole limit. A buffer allocation
+failure is logged and returned as an HTTP client error, not a successful reply.
+
 A Pico 2 W Frame also sends its own **OTA log** of each update attempt, without
 being asked, which Tesserae shows under **OTA logs** on the device page
 (`X-Tesserae-Log-Kind: ota`, with the phase, target version and attempt id).

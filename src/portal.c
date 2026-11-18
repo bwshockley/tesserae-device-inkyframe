@@ -327,7 +327,13 @@ static void build_picker(char *dst, size_t cap)
 #define REQ_MAX   1280
 #define PAGE_MAX  12288
 
-static char           s_resp[PAGE_MAX];   /* one connection serviced at a time */
+typedef struct {
+    char resp[PAGE_MAX];
+    char body[PAGE_MAX - 256];
+} page_workspace_t;
+
+/* Setup's page buffers must not consume the TLS client's heap budget. */
+static page_workspace_t *s_page;
 static volatile bool  s_reboot_pending;
 static volatile bool  s_rescan_pending;   /* set by GET /rescan; run in main loop */
 static volatile bool  s_client_seen;      /* set on each connection; resets idle timer */
@@ -354,7 +360,7 @@ static void conn_close(struct tcp_pcb *pcb, conn_t *c)
 
 static char s_reason[96];
 
-/* Build the setup form into s_resp (HTTP response incl. headers). */
+/* Build the setup form (HTTP response incl. headers). */
 static size_t build_form(void)
 {
     char ssid[80], server[200], reason[160], relay[160];
@@ -366,31 +372,32 @@ static size_t build_form(void)
     static char picker[640];
     build_picker(picker, sizeof picker);
 
-    static char body[PAGE_MAX - 256];
+    char *body = s_page->body;
+    const size_t cap = sizeof s_page->body;
     int n = 0;
-    n += snprintf(body + n, sizeof body - n, "%s", k_head);
-    if (reason[0]) n += snprintf(body + n, sizeof body - n, k_reason_fmt, reason);
-    n += snprintf(body + n, sizeof body - n, k_form_wifi_fmt, ssid, picker);
-    n += snprintf(body + n, sizeof body - n, k_form_server_fmt, server);
-    n += snprintf(body + n, sizeof body - n, k_form_relay_fmt, relay);
-    n += snprintf(body + n, sizeof body - n, "%s", k_submit);
-    n += snprintf(body + n, sizeof body - n, "%s", k_tail);
+    n += snprintf(body + n, cap - n, "%s", k_head);
+    if (reason[0]) n += snprintf(body + n, cap - n, k_reason_fmt, reason);
+    n += snprintf(body + n, cap - n, k_form_wifi_fmt, ssid, picker);
+    n += snprintf(body + n, cap - n, k_form_server_fmt, server);
+    n += snprintf(body + n, cap - n, k_form_relay_fmt, relay);
+    n += snprintf(body + n, cap - n, "%s", k_submit);
+    n += snprintf(body + n, cap - n, "%s", k_tail);
 
-    int h = snprintf(s_resp, sizeof s_resp,
+    int h = snprintf(s_page->resp, sizeof s_page->resp,
                      "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
                      "Content-Length: %d\r\nConnection: close\r\n\r\n", n);
-    if (h + n >= (int)sizeof s_resp) n = (int)sizeof s_resp - h - 1;
-    memcpy(s_resp + h, body, n);
+    if (h + n >= (int)sizeof s_page->resp) n = (int)sizeof s_page->resp - h - 1;
+    memcpy(s_page->resp + h, body, n);
     return (size_t)(h + n);
 }
 
 static size_t build_static(const char *html)
 {
     int n = (int)strlen(html);
-    int h = snprintf(s_resp, sizeof s_resp,
+    int h = snprintf(s_page->resp, sizeof s_page->resp,
                      "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
                      "Content-Length: %d\r\nConnection: close\r\n\r\n", n);
-    memcpy(s_resp + h, html, n);
+    memcpy(s_page->resp + h, html, n);
     return (size_t)(h + n);
 }
 
@@ -462,7 +469,7 @@ static void send_response(struct tcp_pcb *pcb, conn_t *c, size_t total)
     free(c->resp);
     c->resp = malloc(total);
     if (!c->resp) { LOGW("portal: no memory for a %u-byte response", (unsigned)total); conn_close(pcb, c); return; }
-    memcpy(c->resp, s_resp, total);
+    memcpy(c->resp, s_page->resp, total);
     c->resp_total = total;
     c->queued = c->acked = 0;
     tcp_sent(pcb, sent_cb);
@@ -554,6 +561,11 @@ void portal_ap_name(char *out, size_t cap)
 
 bool portal_run(const char *reason)
 {
+    s_page = malloc(sizeof *s_page);
+    if (!s_page) {
+        LOGE("portal: no memory for setup page buffers");
+        return false;
+    }
     snprintf(s_reason, sizeof s_reason, "%s", reason ? reason : "");
     char ssid[33];
     portal_ap_name(ssid, sizeof ssid);
@@ -563,6 +575,8 @@ bool portal_run(const char *reason)
 
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_WORLDWIDE)) {
         LOGE("portal: cyw43 init failed");
+        free(s_page);
+        s_page = NULL;
         return false;
     }
     bool on_usb = cyw43_arch_gpio_get(CYW43_WL_GPIO_VBUS_PIN);
@@ -611,12 +625,16 @@ bool portal_run(const char *reason)
         dns_server_deinit(&dns);
         dhcp_server_deinit(&dhcp);
         cyw43_arch_deinit();
+        free(s_page);
+        s_page = NULL;
         board_led(LED_CONNECTION, 0);
         return false;
     }
 
     sleep_ms(800);   /* let the "Saved" page reach the browser */
     cyw43_arch_deinit();
+    free(s_page);
+    s_page = NULL;
     if (s_save_pending) save_form(s_pending_form);
     LOGI("portal: settings saved; rebooting");
     power_hold_over_reboot();   // on battery the reset would power the frame off

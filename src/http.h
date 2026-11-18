@@ -27,6 +27,7 @@ enum {
     HTTP_ERR_TRANSPORT = -5,
     HTTP_ERR_ABORTED = -6,   // the length callback refused the body
     HTTP_ERR_BUSY = -7,
+    HTTP_ERR_MEMORY = -8,   // could not buffer the response body
 };
 
 // Called once when the response headers are in, with the Content-Length (0 if

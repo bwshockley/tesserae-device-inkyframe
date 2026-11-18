@@ -43,6 +43,7 @@ static struct {
     http_sink_cb sink;
     void *arg;
     size_t received;
+    size_t body_capacity;
     volatile uint32_t last_data_ms;
     // request
     char req[REQ_MAX];
@@ -121,13 +122,25 @@ static void body_bytes(const uint8_t *d, size_t n)
     s.last_data_ms = to_ms_since_boot(get_absolute_time());
     if (s.sink) { s.sink(d, n, s.arg); return; }
     http_resp_t *r = s.resp;
-    if (!r->body) {
-        r->body = malloc(HTTP_BODY_MAX + 1);
-        if (!r->body) { r->truncated = true; return; }
-        r->body_len = 0;
-    }
     size_t room = HTTP_BODY_MAX - r->body_len;
     if (n > room) { n = room; r->truncated = true; }
+    size_t needed = r->body_len + n;
+    if (needed > s.body_capacity) {
+        size_t cap = s.body_capacity ? s.body_capacity : 256;
+        while (cap < needed) cap *= 2;
+        if (cap > HTTP_BODY_MAX) cap = HTTP_BODY_MAX;
+        char *body = realloc(r->body, cap + 1);
+        if (!body) {
+            LOGE("http: no memory for %u-byte response buffer", (unsigned)(cap + 1));
+            r->truncated = true;
+            r->status = HTTP_ERR_MEMORY;
+            s.err = s.done = true;
+            s.state = ST_DONE;
+            return;
+        }
+        r->body = body;
+        s.body_capacity = cap;
+    }
     memcpy(r->body + r->body_len, d, n);
     r->body_len += n;
     r->body[r->body_len] = 0;
@@ -387,14 +400,28 @@ int http_request(const char *method, const char *url,
     if (!tls) s.pcb = altcp_new_ip_type(NULL, IP_GET_TYPE(&ip));
     else if (s_tls_config) {
         s.pcb = altcp_tls_new(s_tls_config, IP_GET_TYPE(&ip));
+        if (!s.pcb) LOGE("http: TLS connection allocation/setup failed");
         // SNI, and the name the certificate is checked against.
-        if (s.pcb && mbedtls_ssl_set_hostname(altcp_tls_context(s.pcb), host) != 0) { altcp_abort(s.pcb); s.pcb = NULL; }
+        if (s.pcb) {
+            int err = mbedtls_ssl_set_hostname(altcp_tls_context(s.pcb), host);
+            if (err != 0) {
+                LOGE("http: TLS hostname setup failed (%d)", err);
+                altcp_abort(s.pcb);
+                s.pcb = NULL;
+            }
+        }
     }
     if (s.pcb) {
         altcp_err(s.pcb, err_cb);
         altcp_recv(s.pcb, recv_cb);
         altcp_sent(s.pcb, sent_cb);
-        if (altcp_connect(s.pcb, &ip, port, connected_cb) != ERR_OK) { altcp_abort(s.pcb); s.pcb = NULL; s.pcb_dead = true; }
+        err_t err = altcp_connect(s.pcb, &ip, port, connected_cb);
+        if (err != ERR_OK) {
+            LOGE("http: connection start to %s:%u failed (lwIP %d)", ipaddr_ntoa(&ip), (unsigned)port, (int)err);
+            altcp_abort(s.pcb);
+            s.pcb = NULL;
+            s.pcb_dead = true;
+        }
     }
     cyw43_arch_lwip_end();
     if (!s.pcb) { s_busy = false; LOGE("http: connect failed"); return resp->status = HTTP_ERR_CONNECT; }
